@@ -2,6 +2,7 @@ package state
 
 import (
 	"os"
+	"path/filepath"
 	"reflect"
 	"testing"
 )
@@ -54,5 +55,25 @@ func TestLoadLimitsBrokenFile(t *testing.T) {
 	}
 	if _, err := LoadLimits(dir); err == nil {
 		t.Fatal("want an error for a broken limits file")
+	}
+}
+
+// macOS empties /var/run at boot, so caps kept there would be forgotten by the next morning.
+func TestLimitsSurviveARebootOnMacOS(t *testing.T) {
+	for _, c := range []struct {
+		goos, stateDir, want string
+	}{
+		{"darwin", macStateDir, macLimitsDir},
+		{"linux", macStateDir, macStateDir},
+		{"windows", `C:\Users\me\AppData\Local\net-merge`, `C:\Users\me\AppData\Local\net-merge`},
+		{"darwin", "/tmp/somewhere-else", "/tmp/somewhere-else"}, // a custom -state-dir is left alone
+	} {
+		got := limitsDirFor(c.goos, c.stateDir)
+		if got != c.want {
+			t.Errorf("limitsDirFor(%s, %q) = %q, want %q", c.goos, c.stateDir, got, c.want)
+		}
+	}
+	if got, want := LimitsPath(macStateDir), filepath.Join(limitsDir(macStateDir), "limits.json"); got != want {
+		t.Errorf("LimitsPath(%q) = %q, want %q", macStateDir, got, want)
 	}
 }

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 )
 
 const limitsVersion = 1
@@ -15,8 +16,23 @@ type limitsFile struct {
 	Limits  map[string]float64 `json:"limits"`
 }
 
-// LimitsPath is where the per-adapter speed limits live, next to the status file.
-func LimitsPath(dir string) string { return filepath.Join(dir, "limits.json") }
+// LimitsPath is where the per-adapter speed limits live: next to the status file, except on macOS,
+// where the status file is in /var/run and is gone after a reboot, so the caps go to Application
+// Support instead. A custom -state-dir keeps them in that directory, which is what someone passing
+// that flag expects.
+func LimitsPath(dir string) string {
+	return filepath.Join(limitsDir(dir), "limits.json")
+}
+
+func limitsDir(stateDir string) string { return limitsDirFor(runtime.GOOS, stateDir) }
+
+// limitsDirFor is limitsDir with the OS passed in, so the macOS rule can be tested anywhere.
+func limitsDirFor(goos, stateDir string) string {
+	if goos == "darwin" && stateDir == macStateDir {
+		return macLimitsDir
+	}
+	return stateDir
+}
 
 // LoadLimits reads the saved caps in Mbit/s. A missing file means no caps, not an error.
 func LoadLimits(dir string) (map[string]float64, error) {
@@ -42,7 +58,7 @@ func LoadLimits(dir string) (map[string]float64, error) {
 
 // SaveLimits writes the caps atomically, so a crash mid-write cannot leave a broken file.
 func SaveLimits(dir string, limits map[string]float64) error {
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+	if err := os.MkdirAll(limitsDir(dir), 0o755); err != nil {
 		return err
 	}
 	b, err := json.MarshalIndent(limitsFile{Version: limitsVersion, Limits: limits}, "", "  ")
