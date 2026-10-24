@@ -185,29 +185,36 @@ var bufPool = sync.Pool{New: func() any { b := make([]byte, 128<<10); return &b 
 // closes both conns and releases the slot. Half-close is honoured so request/response
 // protocols that shut down their write side still receive the reply.
 func Relay(client, upstream net.Conn, sl *Slot, f Family, s *Scheduler) {
+	activity := s.track(sl, f)
 	var wg sync.WaitGroup
 	var once sync.Once
-	release := func() { once.Do(func() { s.ReleaseFor(sl, f) }) } // at the first half-close, see slotConn
+	release := func() {
+		once.Do(func() {
+			s.untrack(sl, f, activity)
+			s.ReleaseFor(sl, f)
+		})
+	} // at the first half-close, see slotConn
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		pump(upstream, client, &sl.bytesOut[f], sl, false)
+		pump(upstream, client, &sl.bytesOut[f], sl, false, activity)
 		release()
 	}()
-	pump(client, upstream, &sl.bytesIn[f], sl, true)
+	pump(client, upstream, &sl.bytesIn[f], sl, true, activity)
 	release()
 	wg.Wait()
 	client.Close()
 	upstream.Close()
 }
 
-func pump(dst, src net.Conn, counter *atomic.Int64, sl *Slot, down bool) {
+func pump(dst, src net.Conn, counter *atomic.Int64, sl *Slot, down bool, activity *flowActivity) {
 	bp := bufPool.Get().(*[]byte)
 	defer bufPool.Put(bp)
 	buf := *bp
 	for {
 		n, err := src.Read(buf)
 		if n > 0 {
+			activity.bytes.Add(int64(n))
 			counter.Add(int64(n))
 			if _, werr := sl.writePaced(dst, buf[:n], down); werr != nil {
 				dst.Close()

@@ -100,7 +100,7 @@ func TestPumpHonoursLimit(t *testing.T) {
 	defer dstW.Close()
 
 	var counted atomic.Int64
-	go pump(dstW, srcR, &counted, sl, false)
+	go pump(dstW, srcR, &counted, sl, false, &flowActivity{})
 	go func() {
 		srcW.Write(make([]byte, 32<<10))
 		srcW.Close()
@@ -192,7 +192,7 @@ func TestSlotConnPacesWrites(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	c := &slotConn{TCPConn: raw.(*net.TCPConn), sl: sl, fam: Fam4}
+	c := &slotConn{TCPConn: raw.(*net.TCPConn), sl: sl, fam: Fam4, s: NewScheduler(nil)}
 	defer c.Close()
 
 	const size = 2 << 20 // 2 MB at 10 MB/s is 200 ms, minus the 500 KB burst
@@ -229,7 +229,7 @@ func TestSlotConnPacesReads(t *testing.T) {
 	if err := raw.(*net.TCPConn).SetReadBuffer(32 << 10); err != nil {
 		t.Fatal(err)
 	}
-	c := &slotConn{TCPConn: raw.(*net.TCPConn), sl: sl, fam: Fam4}
+	c := &slotConn{TCPConn: raw.(*net.TCPConn), sl: sl, fam: Fam4, s: NewScheduler(nil)}
 	defer c.Close()
 
 	const size = 2 << 20
